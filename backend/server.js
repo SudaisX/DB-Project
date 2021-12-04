@@ -3,8 +3,11 @@ import dotenv from 'dotenv';
 import colors from 'colors';
 import morgan from 'morgan';
 import path from 'path';
+import cors from 'cors';
+import knex from 'knex';
 import { notFound, errorHandler } from './middleware/errorMiddleware.js';
 import connectDB from './config/db.js';
+import sql from './config/sqldb.js';
 
 import productRoutes from './routes/productRoutes.js';
 import userRoutes from './routes/userRoutes.js';
@@ -16,6 +19,7 @@ dotenv.config();
 
 // Connect to Database
 connectDB();
+
 // Initialize Express App
 const app = express();
 
@@ -24,6 +28,7 @@ if (process.env.NODE_ENV === 'development') {
     app.use(morgan('dev'));
 }
 
+app.use(cors());
 app.use(express.json());
 
 // Products Routes

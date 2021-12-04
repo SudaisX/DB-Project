@@ -1,6 +1,11 @@
 import asyncHandler from 'express-async-handler';
 import generateToken from '../utils/generateToken.js';
-import User from '../models/userModel.js';
+import sql from '../config/sqldb.js';
+import bcrypt from 'bcryptjs';
+
+const matchPassword = async function (enteredPassword, userPassword) {
+    return await bcrypt.compare(enteredPassword, userPassword);
+};
 
 // @desc    Auth User & Get Token
 // @route   POST api/users/login
@@ -8,8 +13,8 @@ import User from '../models/userModel.js';
 const authUser = asyncHandler(async (req, res) => {
     const { email, password } = req.body;
 
-    const user = await User.findOne({ email: email });
-    if (user && (await user.matchPassword(password))) {
+    const [user] = await sql('User').where({ email: email });
+    if (user && (await matchPassword(password, user.password))) {
         res.json({
             _id: user._id,
             name: user.name,
@@ -29,18 +34,22 @@ const authUser = asyncHandler(async (req, res) => {
 const registerUser = asyncHandler(async (req, res) => {
     const { name, email, password } = req.body;
 
-    const userExist = await User.findOne({ email: email });
+    const [userExist] = await sql('User').where({ email: email });
 
     if (userExist) {
         res.status(400);
-        throw new Error('User already exists');
+        throw new Error('User already exists'); //
     }
 
-    const user = await User.create({
-        name,
-        email,
-        password,
-    });
+    const salt = await bcrypt.genSalt(10);
+    const [user] = await sql('User').insert(
+        {
+            name: name,
+            email: email,
+            password: await bcrypt.hash(password, salt),
+        },
+        '*'
+    );
 
     if (user) {
         res.status(201).json({
@@ -60,7 +69,7 @@ const registerUser = asyncHandler(async (req, res) => {
 // @route   GET api/users/profile
 // @access  Private
 const getUserProfile = asyncHandler(async (req, res) => {
-    const user = await User.findById(req.user._id);
+    const [user] = await sql('User').where('_id', req.user._id);
     if (user) {
         res.json({
             _id: user._id,
@@ -78,15 +87,29 @@ const getUserProfile = asyncHandler(async (req, res) => {
 // @route   PUT api/users/profile
 // @access  Private
 const updateUserProfile = asyncHandler(async (req, res) => {
-    const user = await User.findById(req.user._id);
+    const [user] = await sql('User').where('_id', req.user._id);
     if (user) {
-        user.name = req.body.name || user.name;
-        user.email = req.body.email || user.email;
-        if (req.body.password) {
-            user.password = req.body.password;
-        }
-
-        const updatedUser = await user.save();
+        const salt = await bcrypt.genSalt(10);
+        const [updatedUser] = req.body.password
+            ? await sql('User')
+                  .update(
+                      {
+                          name: req.body.name || user.name,
+                          email: req.body.email || user.email,
+                          password: await bcrypt.hash(req.body.password, salt),
+                      },
+                      '*'
+                  )
+                  .where('_id', req.user._id)
+            : await sql('User')
+                  .update(
+                      {
+                          name: req.body.name || user.name,
+                          email: req.body.email || user.email,
+                      },
+                      '*'
+                  )
+                  .where('_id', req.user._id);
 
         res.json({
             _id: updatedUser._id,
@@ -105,7 +128,7 @@ const updateUserProfile = asyncHandler(async (req, res) => {
 // @route   GET api/users
 // @access  Private/Admin
 const getUsers = asyncHandler(async (req, res) => {
-    const users = await User.find({});
+    const users = await sql.select('*').from('User');
     res.json(users);
 });
 
@@ -113,9 +136,10 @@ const getUsers = asyncHandler(async (req, res) => {
 // @route   DELETE api/users/:id
 // @access  Private/Admin
 const deleteUser = asyncHandler(async (req, res) => {
-    const user = await User.findById(req.params.id);
+    const [user] = await sql('User').where('_id', req.params.id);
+
     if (user) {
-        await user.remove();
+        await sql('User').where('_id', req.params.id).del();
         res.json({ message: 'User removed' });
     } else {
         res.status(404);
@@ -127,9 +151,10 @@ const deleteUser = asyncHandler(async (req, res) => {
 // @route   GET api/users/:id
 // @access  Private/Admin
 const getUserById = asyncHandler(async (req, res) => {
-    const user = await User.findById(req.params.id).select('-password'); //to not fetch password
+    const [user] = await sql('User').where('_id', req.params.id);
     if (user) {
-        res.json(user);
+        const { password, ...userFiltered } = user;
+        res.json(userFiltered);
     } else {
         res.status(404);
         throw new Error('User not found');
@@ -140,14 +165,23 @@ const getUserById = asyncHandler(async (req, res) => {
 // @route   PUT api/users/:id
 // @access  Private/Admin
 const updateUser = asyncHandler(async (req, res) => {
-    const user = await User.findById(req.params.id);
+    const [user] = await sql('User').where('_id', req.params.id);
 
     if (user) {
         user.name = req.body.name || user.name;
         user.email = req.body.email || user.email;
         user.isAdmin = req.body.isAdmin;
 
-        const updatedUser = await user.save();
+        const updatedUser = await sql('User')
+            .update(
+                {
+                    name: req.body.name || user.name,
+                    email: req.body.email || user.email,
+                    isAdmin: req.body.isAdmin,
+                },
+                '*'
+            )
+            .where('_id', req.params.id);
 
         res.json({
             _id: updatedUser._id,

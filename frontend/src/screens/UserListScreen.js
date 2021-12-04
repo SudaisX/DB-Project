@@ -48,7 +48,7 @@ const UserListScreen = ({ history }) => {
                             <th>EMAIL</th>
                             <th>ADMIN</th>
                             <th>CREATED AT</th>
-                            <th>LAST UPDATED</th>
+
                             <th></th>
                         </tr>
                     </thead>
@@ -72,11 +72,7 @@ const UserListScreen = ({ history }) => {
                                         ' | ' +
                                         user.createdAt.split('T')[1].slice(0, 8)}
                                 </td>
-                                <td>
-                                    {user.updatedAt.split('T')[0] +
-                                        ' | ' +
-                                        user.updatedAt.split('T')[1].slice(0, 8)}
-                                </td>
+
                                 <td>
                                     <LinkContainer to={`/admin/user/${user._id}/edit`}>
                                         <Button variant='light' className='btn-sm'>

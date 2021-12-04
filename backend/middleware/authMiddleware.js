@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
 import expressAsyncHandler from 'express-async-handler';
-import User from '../models/userModel.js';
+import sql from '../config/sqldb.js';
 
 const protect = expressAsyncHandler(async (req, res, next) => {
     let token;
@@ -10,7 +10,10 @@ const protect = expressAsyncHandler(async (req, res, next) => {
             token = req.headers.authorization.split(' ')[1];
             const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-            req.user = await User.findById(decoded.id).select('-password');
+            const [userFound] = await sql('User').where('_id', decoded.id);
+            const { password, ...user } = userFound;
+
+            req.user = user;
 
             next();
         } catch (error) {

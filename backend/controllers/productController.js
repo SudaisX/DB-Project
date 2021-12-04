@@ -1,27 +1,34 @@
 import asyncHandler from 'express-async-handler';
-import Product from '../models/productModel.js';
+import sql from '../config/sqldb.js';
 
 // @desc    Fetch all Products
 // @route   Get /api/products
 // @access  Public
 const getProducts = asyncHandler(async (req, res) => {
-    const pageSize = 10;
+    const pageSize = 8;
     const page = Number(req.query.pageNumber) || 1;
 
-    const keyword = req.query.keyword
-        ? {
-              name: {
-                  $regex: req.query.keyword,
-                  $options: 'i',
-              },
-          }
-        : {};
+    // sql
+    const keyword = req.query.keyword ? `%${req.query.keyword}%` : '';
 
-    const count = await Product.countDocuments({ ...keyword });
+    const sqlcount = keyword
+        ? await sql('Product').count('name').where('name', 'ilike', keyword)
+        : await sql('Product').count('name');
 
-    const products = await Product.find({ ...keyword })
-        .limit(pageSize)
-        .skip(pageSize * (page - 1));
+    const { count } = sqlcount[0];
+
+    const products = keyword
+        ? await sql('Product')
+              .where('name', 'ilike', keyword)
+              .limit(pageSize)
+              .offset(pageSize * (page - 1))
+        : await sql('Product')
+              .limit(pageSize)
+              .offset(pageSize * (page - 1));
+
+    // console.log(keyword);
+    // console.log(count);
+    // console.log({ products2, page, pages: Math.ceil(count2 / pageSize) });
 
     res.json({ products, page, pages: Math.ceil(count / pageSize) });
 });
@@ -30,9 +37,11 @@ const getProducts = asyncHandler(async (req, res) => {
 // @route   Get /api/products/:id
 // @access  Public
 const getProductById = asyncHandler(async (req, res) => {
-    const product = await Product.findById(req.params.id);
+    const product = await sql('Product').where('_id', req.params.id);
+    const reviews = await sql('Review').where('product', req.params.id);
+    // console.log({ ...product[0], reviews });
     if (product) {
-        res.json(product);
+        res.json({ ...product[0], reviews });
     } else {
         res.status(404);
         throw new Error('Product not found');
@@ -43,9 +52,14 @@ const getProductById = asyncHandler(async (req, res) => {
 // @route   DELETE /api/products/:id
 // @access  Private/Admin
 const deleteProduct = asyncHandler(async (req, res) => {
-    const product = await Product.findById(req.params.id);
+    const product = await sql('Product').where('_id', req.params.id);
+
     if (product) {
-        await product.remove();
+        const reviews = await sql('Review').where('product', req.params.id);
+        if (reviews) {
+            await sql('Review').where('product', req.params.id).del();
+        }
+        await sql('Product').where('_id', req.params.id).del();
         res.json({ message: 'Product removed' });
     } else {
         res.status(404);
@@ -57,40 +71,46 @@ const deleteProduct = asyncHandler(async (req, res) => {
 // @route   POST /api/products
 // @access  Private/Admin
 const createProduct = asyncHandler(async (req, res) => {
-    const product = new Product({
-        name: 'Sample Name',
-        price: 0,
-        user: req.user._id,
-        image: '/images/sample.jpg',
-        brand: 'Sample Brand',
-        category: 'Sample Category',
-        countInStock: 0,
-        numReviews: 0,
-        description: 'Sample Description',
-    });
+    const product = await sql('Product').insert(
+        {
+            name: 'Sample Name',
+            price: 0,
+            user: req.user._id,
+            image: '/images/sample.jpg',
+            brand: 'Sample Brand',
+            category: 'Sample Category',
+            countInStock: 0,
+            numReviews: 0,
+            rating: 0,
+            description: 'Sample Description',
+        },
+        '*'
+    );
 
-    const createdProduct = await product.save();
-    res.status(201).json(createdProduct);
+    res.status(201).json(product[0]);
 });
 
-// @desc    Create Product
+// @desc    Update Product
 // @route   PUT /api/products/:id
 // @access  Private/Admin
 const updateProduct = asyncHandler(async (req, res) => {
     const { name, price, description, image, brand, category, countInStock } = req.body;
 
-    const product = await Product.findById(req.params.id);
+    const product = await sql('Product').where('_id', req.params.id);
     if (product) {
-        product.name = name;
-        product.price = price;
-        product.description = description;
-        product.image = image;
-        product.brand = brand;
-        product.category = category;
-        product.countInStock = countInStock;
-
-        const updatedProduct = await product.save();
-        res.json(updatedProduct);
+        const updatedProduct = await sql('Product').where('_id', req.params.id).update(
+            {
+                name,
+                price,
+                description,
+                image,
+                brand,
+                category,
+                countInStock,
+            },
+            '*'
+        );
+        res.json(updatedProduct[0]);
     } else {
         res.status(404);
         throw new Error('Product not found');
@@ -103,31 +123,31 @@ const updateProduct = asyncHandler(async (req, res) => {
 const createProductReview = asyncHandler(async (req, res) => {
     const { rating, comment } = req.body;
 
-    const product = await Product.findById(req.params.id);
+    const product = await sql('Product').where('_id', req.params.id);
     if (product) {
-        const alreadyReview = product.reviews.find(
-            (r) => r.user.toString() === req.user._id.toString()
-        );
-        if (alreadyReview) {
+        const reviews = await sql('Review').where('product', req.params.id);
+        if (reviews.length > 0) {
             res.status(400);
             throw new Error('Product already reviewed');
         }
 
-        const review = {
+        await sql('Review').insert({
             name: req.user.name,
             rating: Number(rating),
             comment,
-            user: req.user._id,
-        };
+            user: req.user._id, //req.user._id
+            product: req.params.id,
+        });
 
-        product.reviews.push(review);
-
-        product.numReviews = product.reviews.length;
-
-        product.rating =
-            product.reviews.reduce((acc, item) => item.rating + acc, 0) / product.reviews.length;
-
-        await product.save();
+        const updatedReviews = await sql('Review').where('product', req.params.id);
+        await sql('Product')
+            .update({
+                numReviews: updatedReviews.length,
+                rating:
+                    updatedReviews.reduce((acc, item) => item.rating + acc, 0) /
+                    updatedReviews.length,
+            })
+            .where('_id', req.params.id);
 
         res.status(201).json({ message: 'Review added' });
     } else {
@@ -140,7 +160,7 @@ const createProductReview = asyncHandler(async (req, res) => {
 // @route   GET /api/products/top
 // @access  Public
 const getTopProducts = asyncHandler(async (req, res) => {
-    const products = await Product.find({}).sort({ rating: -1 }).limit(3);
+    const products = await sql('Product').orderBy('rating', 'desc').limit(3);
     res.json(products);
 });
 

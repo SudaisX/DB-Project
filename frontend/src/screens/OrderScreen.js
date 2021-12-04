@@ -36,6 +36,7 @@ const OrderScreen = ({ match, history }) => {
     }, [dispatch, history, userInfo, orderId, successPay, successDeliver, order]);
 
     if (!loading) {
+        // console.log(order);
         order.itemsPrice = order.orderItems.reduce((acc, item) => acc + item.price * item.qty, 0);
     }
 

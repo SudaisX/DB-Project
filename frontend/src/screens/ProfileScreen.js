@@ -28,6 +28,7 @@ const ProfileScreen = ({ location, history }) => {
         if (!userInfo) {
             history.push('/login');
         } else {
+            console.log(user);
             if (!user.name) {
                 dispatch(getUserDetails('profile'));
             } else {
